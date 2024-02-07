@@ -1,14 +1,74 @@
 // src/server.ts
-import express, { Request, Response } from 'express';
+import * as express from 'express';
+import { Request, Response } from 'express';
+
+import { isValidBid } from "./types"
 
 const app = express();
 const port = 3000;
 
 app.use(express.json());
 
+enum Suit {
+    Hearts = "Hearts",
+    Diamonds = "Diamonds",
+    Clubs = "Clubs",
+    Spades = "Spades",
+    NoSuit = "NoSuit"
+}
+
+interface Player {
+    name: string;
+    passCount: number;
+}
+
+interface Bid {
+    player: Player;
+    suit: Suit | null;
+    level: number;
+}
+
+interface Contract {
+    suit: Suit;
+    level: number;
+}
+
+let currentBid: Bid | null = null;
+let bids: Bid[] = [];
+let gamePlayers: Player[] = []; // Har brukt et annet navn for å unngå konflikt med 'players' variabelen
+
+
 let players: { name: string, mailboxId: number }[] = [];
 let mailboxes: { id: number; name: string; messages: string[] }[] = [];
 let contacts: string[] = [];
+
+
+
+// Funksjoner for når bud er over og når man skal opprette kontrakt
+function isBiddingOver(): boolean {
+    // Sjekk om de siste tre budene er pass
+    const passCount = bids.slice(-3).filter(bid => bid.suit === null).length;
+    return passCount === 3;
+}
+
+function determineContract(bids: Bid[]): { winningBid: Bid; contract: Contract } {
+    // Finn det siste gyldige budet før de tre påfølgende passene
+    const lastNonPassBidIndex = bids.map(bid => bid.suit).lastIndexOf(null) - 3;
+    const winningBid = bids[lastNonPassBidIndex];
+
+    // Kontroller at vi faktisk fant et bud
+    if (!winningBid) {
+        throw new Error("Ingen vinnerbud funnet, noe er galt med logikken.");
+    }
+
+    const contract: Contract = {
+        suit: winningBid.suit!,
+        level: winningBid.level
+    };
+
+    return { winningBid, contract };
+}
+
 
 // Endpoint to register players
 app.post('/register', (req: Request, res: Response) => {
@@ -16,6 +76,11 @@ app.post('/register', (req: Request, res: Response) => {
 
     if (!playerName) {
         return res.status(400).json({ success: false, error: 'Player name is required' });
+    }
+
+    // Sjekk om det allerede er 4 spillere registrert
+    if (players.length >= 4) {
+        return res.status(400).json({ success: false, error: 'Maximum number of players (4) has already been registered' });
     }
 
     // Create a unique ID for the mailbox
@@ -29,6 +94,7 @@ app.post('/register', (req: Request, res: Response) => {
     return res.json({ success: true, message: `${playerName} registered successfully` });
 });
 
+
 // Endpoint to get the next player in turn
 app.get('/nextPlayer', (req: Request, res: Response) => {
     if (players.length === 0) {
@@ -38,6 +104,55 @@ app.get('/nextPlayer', (req: Request, res: Response) => {
     const nextPlayer = players.shift();
     return res.json({ success: true, nextPlayer });
 });
+
+// Start budgivningen og nullstill nødvendige variabler
+app.post('/startBidding', (req: Request, res: Response) => {
+    bids = [];
+    currentBid = null;
+    gamePlayers = []; //Her må vi kanskje fylle dette basert på app-behov
+    // Legg til logikk her for å initialisere 'gamePlayers' basert på registrerte spillere eller en annen mekanisme
+    return res.status(200).json({ success: true, message: 'Budgivningen startet' });
+});
+
+app.post('/placeBid', (req: Request, res: Response) => {
+    const { name, suit, level } = req.body;
+    const player = gamePlayers.find(p => p.name === name);
+
+    if (!player) {
+        return res.status(404).json({ success: false, message: 'Spiller ikke funnet' });
+    }
+
+    // Sjekk om 'suit' er en gyldig nøkkel i 'Suit' enum
+    const isSuitValid = suit ? Object.values(Suit).includes(suit as Suit) : false;
+
+    // Opprett 'bid' med sjekken for gyldig 'suit' eller null hvis ikke gyldig eller ikke oppgitt
+    const bid: Bid = {
+        player,
+        suit: isSuitValid ? suit as Suit : null,
+        level,
+    };
+
+    if (!isValidBid(bid)) {
+        return res.status(400).json({ success: false, message: 'Ugyldig bud' });
+    }
+
+    bids.push(bid);
+    currentBid = bid; // Oppdater gjeldende bud
+
+    if (isBiddingOver()) {
+        const { winningBid, contract } = determineContract(bids);
+        return res.status(200).json({
+            success: true,
+            message: 'Budgivningen er over',
+            winningBid: winningBid.player.name,
+            contract
+        });
+    }
+
+    return res.status(200).json({ success: true, message: 'Bud mottatt', bid });
+});
+
+
 
 // Endpoint to deal cards
 app.post('/dealCards', (req: Request, res: Response) => {
