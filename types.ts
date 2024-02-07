@@ -59,7 +59,7 @@ function getBidFromPlayer(player: Player): Bid {
     return { player, suit: Suit.Hearts, level: 1 };
 }
 
-function isValidBid(bid: Bid): boolean {
+export function isValidBid(bid: Bid): boolean {
     if (bid.suit !== null && !Object.values(Suit).includes(bid.suit)) {
         return false;
     }
@@ -69,12 +69,21 @@ function isValidBid(bid: Bid): boolean {
     return true;
 }
 
-function isBiddingOver(players: Player[]): boolean {
-    if (bids.filter(bid => bid.suit === null).length >= 3) { // 3 påfølgende pass avslutter budgivningen
-        return true;
+export function isBiddingOver(players: Player[]): boolean {
+    let consecutivePasses = 0;
+    for (const bid of bids) {
+        if (bid.suit) {
+            consecutivePasses = 0; // Tilbakestill hvis et bud har en farge
+        } else {
+            consecutivePasses++;
+            if (consecutivePasses >= 3) {
+                return true;
+            }
+        }
     }
-    return false;
+    return false; // Ingen 3 påfølgende pass funnet
 }
+
 
 function determineContract(bids: Bid[]): { winningBid: Bid; contract: Contract } {
     let winningBid = bids[0];
